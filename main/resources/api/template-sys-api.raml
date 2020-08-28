@@ -1,0 +1,14 @@
+#%RAML 1.0
+baseUri: https://anypoint.mulesoft.com/mocking/api/v1/links/a6943635-f5d7-4c40-9196-7e3219952696/ # 
+title: template-sys-api
+version: v1
+description: this is a template for system API layer
+/sapi-ping:
+  get:
+    description: template for systeam API 
+    responses:
+      "200":
+        body:
+          application/json:
+            type: string
+            example: "Hello System API is alive."

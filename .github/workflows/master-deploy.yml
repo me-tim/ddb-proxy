@@ -1,0 +1,375 @@
+# This workflow will build a Java project with Maven
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: Deploy to Production
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'
+
+# Set environment variables
+env:
+
+  # notes for application properties (update pom.xml with these values and update both notes & pom.xml when change is needed):
+  # <app.runtime>: 4.2.2                  # Please keep runtime updated to the latest
+  # <mule.maven.plugin.version>: 3.3.5    # please keep plugin updated to the latest
+
+  # remember to update constant value of the following properties in pom.xml:
+  # <artifactId>, <groupId>, <version>
+
+  # Core pom.xml Properties (Required - These values must match pom.xml - DO NOT replace pom.xml with these variables)
+  apiProject: ddb-template-fullautomation-mulesoft                       # Product Owner team that own the API platform team
+
+
+  # AWS Deployment (Required)
+  version: 1.0.1                                                                              # project Version number
+  workflowEnv: prd                                                                            # this maps to mule application {env} properties
+  anypointPlatformClientId: ${{ secrets.anypoint_platform_client_id_prod }}                   # Cloudhub Environment Client ID
+  anypointPlatformClientSecret: ${{ secrets.anypoint_platform_client_secret_prod }}           # Cloudhub Environment Client Secret
+  anypointPlatformUsername: ${{ secrets.anypoint_username_prod }}                             # Anypoint Platform Identity Username for deployment
+  anypointPlatformPassword: ${{ secrets.anypoint_password_prod}}                              # Anypoint Platform Identity Password for deployment
+  anypointPlatformEnvName: PROD                                                               # Environment name of the deployment target environment (Case Sensitive)
+  anypointPlatformBusinessGroup: "Digital Data Backbone"                                      # The runtime Business Group (Default: master org)
+  anypointPlatformRegionName: use1                                                            # standard naming convention
+  anypointPlatformBaseUri: https://anypoint.mulesoft.com/                                     # always https://anypoint.mulesoft.com/
+  awsVPCRegion: us-east-1                                                                     # must match DLB and VPC region. refer to parameter
+  apiLayer: sys                                                                               # e - experience API; p - process API; s - system API
+  target: api-us-int-idc-onetakeda-com                                                        # Server to deployed to for on-prem only
+  type: cluster                                                                               # Server type to be deployed for on-prem only
+  businessGroupId: 0e65446d-904f-4e41-a05e-bedd1fa8bd7e                                       # Businessgroup ID from Anypoint platform
+  applicationName:  ddb-template-fullautomation-mulesoft                                      # Application Name in Runtime Manager
+  deploymentTimeout: 100000                                                                   # deployment timeout setting
+  muleVersion: 4.3                                                                            # Mule Version to be deployed to
+  promoteAPIManager: false                                                                    # set if you want to promote API manager Instances, Client Applications, SLA Tiers e.c.t
+  promoteAlerts: false                                                                        # set if you want to promote alerts
+  AnypointSubOrg: 009c6517-2971-416c-83f0-89348b5c4ea1                                        # SubOrg Digital Data Backbone
+  TakedaMasterOrg: 85c2e743-b74e-4246-83c5-356dc5a536a6                                       # Master Org ID
+  OriginAPIID: 16295662                                                                       # The API ID to be used to promote
+  AnypointEnvID: 6c4b1ca5-6553-49c6-8c3a-2f4064299674                                         # UAT env ID
+  clientappName: MuleSoft Template Automation PROD                                            # Client Application Name that will get associated to the API Instance in API manager
+  jfrogBuildNUmbertoPromote: 27eb077afcaf0cca0ee13fb460f346c23db32e5f                         # JFrog Build to download from
+  jfrogBuildNametoPromote: ddb-template-fullautomation-mulesoft                               # jFrog Build Name to download from
+  prodDDBalertemail: 8ed919e1-7579-4841-8540-17b14fe35dec                                     # Standard email for DDB NonProd MuleSoft Deployment
+  alertNameCPU: MuleSoft Template App CPU Usage                                               # Alert name for CPU Usage applicable only for CloudHub
+  alertNameMemory: MuleSoft Template App Memory Usage                                         # Alert name for Memory Usage applicable only for CloudHub
+  alertWorkerUnresponsive: MuleSoft Template App Worker Unresponsive                          # Alert name for App Worker Unresponsive applicable only for CloudHub
+
+
+jobs:
+  Build_and_deploy_artifact:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Create maven settings.xml
+        uses: whelk-io/maven-settings-xml-action@v9
+        with:
+          servers: '[{"id": "anypoint-exchange-v2", "username": "${{ secrets.anypoint_username_prod }}", "password": "${{ secrets.anypoint_password_prod}}" },{"id": "MuleRepository", "username": "${{ secrets.MULE_ENT_USERNAME_NEXUS }}", "password": "${{ secrets.MULE_ENT_PASSWORD_NEXUS }}" }, {"id": "github", "username": "${{secrets.githubusername}}", "password": "${{secrets.githubtoken}}" }, {"id": "central", "username": "${{secrets.DDB_JFROG_USER}}", "password": "${{secrets.DDB_JFROG_PASSWORD}}"}]'
+          repositories: '[{"id": "MuleRepository", "url": "https://repository.mulesoft.org/nexus-ee/content/repositories/releases-ee/"},{"id": "anypoint-exchange-v2", "url": "https://maven.anypoint.mulesoft.com/api/v2/maven"},{"id": "github", "url": "https://maven.pkg.github.com/oneTakeda/ddb-mulesoft-onprem-domain-project", "snapshots": { "enabled": "true" }}]'
+
+      - run: |
+          cat ~/.m2/settings.xml
+
+      - name: Set up JDK 1.8 version
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.8
+          path: ~/.m2/repository
+          #server-id: github # Value of the distributionManagement/repository/id field of the pom.xml
+          settings-path: ${{ github.workspace }} # location for the settings.xml file
+
+      - name: Deploy Package to Artifactory
+        uses: jfrog/setup-jfrog-cli@v1
+        env:
+          JF_ARTIFACTORY_1: ${{secrets.DDB_JFROG_ARTIFACTORY_SECRET_1}}
+      - run: |
+          jfrog rt mvnc --server-id-deploy=Default-Server --repo-deploy-releases=ddb-maven-local --repo-deploy-snapshots=ddb-maven-local
+          jfrog rt dl --build-number=$${{env.jfrogBuildNUmbertoPromote}}
+
+
+      - name: Set UUID
+        id: generate-username
+        uses: filipstefansson/uuid-action@v1
+      # use the output from the `generate-uuid` step
+      - name: Get the UUID
+        run: echo "UUID is ${{ steps.generate-username.outputs.uuid }}"
+      - run:
+          echo "::set-env name=client_id::${{ steps.generate-username.outputs.uuid }}"
+
+      - name: Set UUID
+        id: generate-password
+        uses: filipstefansson/uuid-action@v1
+      # use the output from the `generate-uuid` step
+      - name: Get the UUID
+        run: echo "UUID is ${{ steps.generate-password.outputs.uuid }}"
+      - run:
+          echo "::set-env name=client_secret::${{ steps.generate-password.outputs.uuid }}"
+
+      - name: 'Get Anypoint Access Token'
+        uses: indiesdev/curl@v1
+        if: ${{env.promoteAPIManager == 'true' }}
+        id: api
+        with:
+          url: https://anypoint.mulesoft.com/accounts/login
+          method: 'POST'
+          accept: 200
+          headers: '{"Content-Type": "application/json"}'
+          body: '{ "username": "${{ secrets.anypoint_username_prod }}",  "password": "${{ secrets.anypoint_password_non_prod}}" }'
+      - name: 'Use response'
+        if: ${{env.promoteAPIManager == 'true' }}
+        run:
+          echo ${{steps.api.outputs.response}}
+      - name: 'Extract Anypoint Access Token'
+        if: ${{env.promoteAPIManager == 'true' }}
+        run:
+          echo "::set-env name=accessTokenssss::${{fromJson(steps.api.outputs.response).data.access_token}}"
+
+      - name: 'Create Client Application'
+        uses: indiesdev/curl@v1
+        if: ${{env.promoteAPIManager == 'true' }}
+        id: api1
+        with:
+          url: https://anypoint.mulesoft.com/apiplatform/repository/v2/organizations/$${{env.AnypointSubOrg}}/applications
+          method: 'POST'
+          accept: 201
+          headers: '{"Content-Type": "application/json", "Authorization": "Bearer ${{env.accessTokenssss}}"}'
+          body: '{"name":"${{env.clientappName}}", "clientId": "${{env.client_id}}", "clientSecret": "${{env.client_secret}}","masterOrganizationId": "${{env.TakedaMasterOrg}}", "description": "ClientApp-through-automation", "apiEndpoints":"false" }'
+      - name: 'Use response'
+        run: echo ${{steps.api1.outputs.response}}
+      - name: 'Extract ClientApp ID'
+        if: ${{env.promoteAPIManager == 'true' }}
+        run:
+          echo "::set-env name=clientappID::${{fromJson(steps.api1.outputs.response).data.id}}"
+
+      - name: 'Promote API Manager Instance'
+        uses: indiesdev/curl@v1
+        if: ${{env.promoteAPIManager == 'true' }}
+        id: api2
+        with:
+          url: https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${{env.businessGroupId}}/environments/${{env.AnypointEnvID}}/apis
+          method: 'POST'
+          accept: 201
+          headers: '{"Content-Type": "application/json", "Authorization": "Bearer ${{env.accessTokenssss}}"}'
+          body: '{
+                      "instanceLabel":"Sys API",
+                      "promote":{
+                         "originApiId": ${{env.OriginAPIID}},
+                         "policies":{
+                            "allEntities": true
+                         },
+                         "tiers":{
+                            "allEntities": true
+                         },
+                         "alerts":{
+                            "allEntities": true
+                         }
+                      }
+                   }'
+      - name: 'Use response'
+        run: echo ${{steps.api2.outputs.response}}
+      - name: 'Extract Promoted API ID'
+        if: ${{env.promoteAPIManager == 'true' }}
+        run:
+          echo "::set-env name=promotedapiID::${{fromJson(steps.api2.outputs.response).data.id}}"
+
+      - name: 'Fetch SLA Tiers'
+        uses: indiesdev/curl@v1
+        if: ${{env.promoteAPIManager == 'true' }}
+        id: api3
+        with:
+          url: https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${{env.businessGroupId}}/environments/${{env.AnypointEnvID}}/apis/${{env.promotedapiID}}/tiers
+          method: 'GET'
+          accept: 200
+          headers: '{"Content-Type": "application/json", "Authorization": "Bearer ${{env.accessTokenssss}}"}'
+      - name: 'Use response'
+        run: echo ${{steps.api3.outputs.response}}
+      - name: 'Extract Tiers to be approved'
+        if: ${{env.promoteAPIManager == 'true' }}
+        run:
+          echo "::set-env name=myTier::${{fromJson(steps.api3.outputs.response).data.tiers[0].id}}"
+
+      - name: 'Create Contracts Tiers'
+        uses: indiesdev/curl@v1
+        if: ${{env.promoteAPIManager == 'true' }}
+        id: api4
+        with:
+          url: https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${{env.businessGroupId}}/environments/${{env.AnypointEnvID}}/apis/${{env.promotedapiID}}/contracts
+          method: 'POST'
+          accept: 201
+          headers: '{"Content-Type": "application/json", "Authorization": "Bearer ${{env.accessTokenssss}}"}'
+          body:   '{
+                  "applicationId": ${{env.clientappID}},
+                  "acceptedTerms": true,
+                  "requestedTierId": ${{env.myTier}}
+                }'
+      - name: 'Use response'
+        run: echo ${{steps.api4.outputs.response}}
+      - name: 'Extract Contract Id'
+        if: ${{env.promoteAPIManager == 'true' }}
+        run:
+          echo "::set-env name=contractID::${{fromJson(steps.api4.outputs.response).data.id}}"
+
+      - name: 'Approve a Contract Tier'
+        uses: indiesdev/curl@v1
+        if: ${{env.promoteAPIManager == 'true' }}
+        id: api5
+        with:
+          url: https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${{env.businessGroupId}}/environments/${{env.AnypointEnvID}}/apis/${{env.promotedapiID}}/contracts/${{env.contractID}}
+          method: 'PATCH'
+          accept: 200
+          headers: '{"Content-Type": "application/json", "Authorization": "Bearer ${{env.accessTokenssss}}"}'
+          body:   '{
+                     "status":"APPROVED",
+                     "tierId": ${{env.myTier}},
+                     "requestedTierId": ${{env.myTier}}
+                     }'
+      - name: 'Use response'
+        if: ${{env.promoteAPIManager == 'true' }}
+        run: echo ${{steps.api5.outputs.response}}
+
+
+      - name: Build and Deploy Mule Package
+        run: >
+          mvn mule:deploy -Dmule.artifact=${{env.applicationName}}-${{env.version}}-mule-application.jar
+          "-Dusername=${{ env.anypointPlatformUsername }}"
+          "-Dpassword=${{ env.anypointPlatformPassword }}"
+          -Danypoint_platform_client_id=${{ env.anypointPlatformClientId }}
+          -Danypoint_platform_client_secret=${{ env.anypointPlatformClientSecret }}
+          -Denv=${{ env.workflowEnv }}
+          -Danypoint_platform_region=${{ env.anypointPlatformRegionName }}
+          -DautodiscoveryID=${{ env.promotedapiID }}
+          -DapiProject=${{ env.apiProject }}
+          -DapiLayer=${{ env.apiLayer }}
+          -Dkey=${{secrets.encryptdecryptkey}}
+          -Dtarget=${{env.target}}
+          -Dtarget.type=${{env.type}}
+          -DbusinessgroupId=${{env.businessGroupId}}
+          -DawsVPCRegion=${{env.awsVPCRegion}}
+          -Danypoint_platform_env=${{env.anypointPlatformEnvName}}
+          -DapplicationName=${{env.applicationName}}
+          -DmuleVersion=${{env.muleVersion}}
+          -DdeploymentTimeout=${{env.deploymentTimeout}}
+          -Dregion=${{env.anypointPlatformRegionName}}
+          -DclientId=${{env.client_id}}
+          -DclientSecret=${{env.client_secret}}
+
+
+      - name: 'Create App Alert for CPU Usage'
+        uses: indiesdev/curl@v1
+        if: ${{env.promoteAlerts == 'true' }}
+        id: api6
+        with:
+          url: https://anypoint.mulesoft.com/armui/api/v1/alerts/cloudhub
+          method: 'POST'
+          accept: 200
+          headers: '{"Content-Type": "application/json", "Authorization": "Bearer ${{env.accessTokenssss}}", "X-ANYPNT-ENV-ID": "${{env.AnypointEnvID}}", "X-ANYPNT-ORG-ID": "${{env.businessGroupId}}" }'
+          body: '{
+                         "name": "${{env.alertNameCPU}}",
+                         "severity": "CRITICAL",
+                         "actions": [
+                           {
+                             "type": "email",
+                             "content": "Hello,\nYou are receiving this alert because:\nThe application ${resource} is now in an ${state} state, based on the condition \u0027CPU ${operator} ${value}%\u0027.",
+                             "subject": "${severity}: CPU usage ${state}",
+                              "emails": [
+                                      "sundar.krishnadas@mulesoft.com"
+                                    ],
+                             "userIds": [
+                               "${{env.prodDDBalertemail}}"
+                             ]
+                           }
+                         ],
+                         "condition": {
+                           "operator": "GREATER_THAN",
+                           "periodCount": 10,
+                           "value": 80,
+                           "resourceType": "cloudhub-application",
+                           "type": "cpu",
+                           "periodMins": 1,
+                           "resources": [
+                             "${{env.applicationName}}"
+                           ]
+                         }
+                       }'
+      - name: 'Create App Alert for Memory Usage'
+        uses: indiesdev/curl@v1
+        if: ${{env.promoteAlerts == 'true' }}
+        id: api7
+        with:
+          url: https://anypoint.mulesoft.com/armui/api/v1/alerts/cloudhub
+          method: 'POST'
+          accept: 200
+          headers: '{"Content-Type": "application/json", "Authorization": "Bearer ${{env.accessTokenssss}}", "X-ANYPNT-ENV-ID": "${{env.AnypointEnvID}}", "X-ANYPNT-ORG-ID": "${{env.businessGroupId}}" }'
+          body: '{
+                               "name": "${{env.alertNameMemory}}",
+                               "severity": "CRITICAL",
+                               "actions": [
+                                 {
+                                   "type": "email",
+                                   "content": "Hello,\nYou are receiving this alert because:\nThe application ${resource} is now in an ${state} state, based on the condition \u0027memory ${operator} ${value}%\u0027.",
+                                   "subject": "${severity}: Memory usage ${state}",
+                                    "emails": [
+                                            "sundar.krishnadas@mulesoft.com"
+                                          ],
+                                   "userIds": [
+                                     "${{env.prodDDBalertemail}}"
+                                   ]
+                                 }
+                               ],
+                               "condition": {
+                                 "operator": "GREATER_THAN",
+                                 "periodCount": 10,
+                                 "value": 80,
+                                 "resourceType": "cloudhub-application",
+                                 "type": "memory",
+                                 "periodMins": 1,
+                                 "resources": [
+                                   "${{env.applicationName}}"
+                                 ]
+                               }
+                             }'
+      - name: 'Create App Alert for Memory Usage'
+        uses: indiesdev/curl@v1
+        if: ${{env.promoteAlerts == 'true' }}
+        id: api8
+        with:
+          url: https://anypoint.mulesoft.com/armui/api/v1/alerts/cloudhub
+          method: 'POST'
+          accept: 200
+          headers: '{"Content-Type": "application/json", "Authorization": "Bearer ${{env.accessTokenssss}}", "X-ANYPNT-ENV-ID": "${{env.AnypointEnvID}}", "X-ANYPNT-ORG-ID": "${{env.businessGroupId}}" }'
+          body: '{
+                                     "name": "${{env.alertWorkerUnresponsive}}",
+                                     "severity": "CRITICAL",
+                                     "actions": [
+                                       {
+                                         "type": "email",
+                                         "content": "Hello,\nYou are receiving this alert because:\nOne of the workers from the application ${resource} has encountered a problem.\nPlease check the notification and logs for more details.",
+                                         "subject": "${severity}: Worker unresponsive usage ",
+                                          "emails": [
+                                                  "sundar.krishnadas@mulesoft.com"
+                                                ],
+                                         "userIds": [
+                                           "${{env.prodDDBalertemail}}"
+                                         ]
+                                       }
+                                     ],
+                                     "condition": {
+                                       "resourceType": "cloudhub-application",
+                                       "type": "worker-unresponsive",
+                                       "periodMins": 1,
+                                       "resources": [
+                                         "${{env.applicationName}}"
+                                       ]
+                                     }
+                                   }'
+      - name: Checkout BDD Testing repo
+        uses: actions/checkout@v2
+        with:
+          ref: master
+          token: ${{secrets.githubtoken}}
+          repository: ddb-mulesoft-restassured-template
+
+      - name: Run regression Tests
+        run: >
+          mvn clean test

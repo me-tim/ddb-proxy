@@ -1,0 +1,30 @@
+#%RAML 1.0
+baseUri: https://anypoint.mulesoft.com/mocking/api/v1/links/a6943635-f5d7-4c40-9196-7e3219952696/ # 
+title: template-sys-api
+version: v1
+description: this is a template for system API layer
+traits:
+  client-id-required:
+    headers:
+      client_id:
+        type: string
+      client_secret:
+        type: string
+    responses:
+      401:
+        description: Unauthorized or invalid client application credentials
+      500:
+        description: Bad response from authorization server
+/sapi-ping:
+  get:
+    is: [client-id-required]
+    description: template for systeam API 
+    responses:
+      "200":
+        body:
+          application/json:
+            type: object
+            example: {
+                        "message": "Hello System API is alive.",
+                        "application": "ddb-template-fullautomation-mulesoft"
+                           }

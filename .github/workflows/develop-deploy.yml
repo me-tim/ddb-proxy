@@ -1,0 +1,92 @@
+# This workflow will build a Java project with Maven
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: DEV deployment Pipeline
+
+on:
+  pull_request:
+    branches:     
+      - develop
+
+# Set environment variables
+env:
+
+  # notes for application properties (update pom.xml with these values and update both notes & pom.xml when change is needed):
+  # <app.runtime>: 4.2.2                  # Please keep runtime updated to the latest
+  # <mule.maven.plugin.version>: 3.3.5    # please keep plugin updated to the latest
+
+  # remember to update constant value of the following properties in pom.xml:
+  # <artifactId>, <groupId>, <version>
+
+  # Core pom.xml Properties (Required - These values must match pom.xml - DO NOT replace pom.xml with these variables)
+  apiProject: ddb-template-fullautomation-mulesoft                       # Product Owner team that own the API platform team
+
+
+  # AWS Deployment (Required)
+  workflowEnv: dev                                                                            # this maps to mule application {env} properties
+  anypointPlatformClientId: ${{ secrets.anypoint_platform_client_id_dev }}                    # Cloudhub Environment Client ID
+  anypointPlatformClientSecret: ${{ secrets.anypoint_platform_client_secret_dev }}            # Cloudhub Environment Client Secret
+  anypointPlatformUsername: ${{ secrets.anypoint_username_non_prod }}                         # Anypoint Platform Identity Username for deployment
+  anypointPlatformPassword: ${{ secrets.anypoint_password_non_prod}}                          # Anypoint Platform Identity Password for deployment
+  anypointPlatformEnvName: DEV                                                                # Environment name of the deployment target environment (Case Sensitive)
+  anypointPlatformBusinessGroup: "Digital Data Backbone"                                      # The runtime Business Group (Default: master org)
+  anypointPlatformRegionName: use1                                                            # standard naming convention
+  anypointPlatformBaseUri: https://anypoint.mulesoft.com/                                     # always https://anypoint.mulesoft.com/
+  awsVPCRegion: us-east-1                                                                     # must match DLB and VPC region. refer to parameter 
+  apiLayer: sys                                                                               # e - experience API; p - process API; s - system API
+  apiId: "16264501"                                                                           # for Autodiscovery purpose. Must match API ID in API Manager 
+  target: api-us-int-aws-dev                                                                  # Server to deployed to for on-prem only
+  type: cluster                                                                               # Server type to be deployed for on-prem only
+  businessGroupId: 0e65446d-904f-4e41-a05e-bedd1fa8bd7e                                       # Businessgroup ID from Anypoint platform
+  applicationName:  ddb-template-fullautomation-mulesoft-use1                                 # Application Name in Runtime Manager
+  deploymentTimeout: 1000000                                                                  # deployment timeout setting
+  muleVersion: 4.3                                                                            # Mule Version to be deployed to
+  
+
+jobs:
+  Build_and_deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Create maven settings.xml
+      uses: whelk-io/maven-settings-xml-action@v9
+      with:
+        servers: '[{"id": "anypoint-exchange-v2", "username": "${{ secrets.anypoint_username_non_prod }}", "password": "${{ secrets.anypoint_password_non_prod}}" },{"id": "MuleRepository", "username": "${{ secrets.MULE_ENT_USERNAME_NEXUS }}", "password": "${{ secrets.MULE_ENT_PASSWORD_NEXUS }}" }, {"id": "github", "username": "${{secrets.githubusername}}", "password": "${{secrets.githubtoken}}" }, {"id": "central", "username": "${{secrets.DDB_JFROG_USER}}", "password": "${{secrets.DDB_JFROG_PASSWORD}}"}]'
+        repositories: '[{"id": "MuleRepository", "url": "https://repository.mulesoft.org/nexus-ee/content/repositories/releases-ee/"},{"id": "anypoint-exchange-v2", "url": "https://maven.anypoint.mulesoft.com/api/v2/maven"},{"id": "github", "url": "https://maven.pkg.github.com/oneTakeda/ddb-mulesoft-onprem-domain-project", "snapshots": { "enabled": "true" }}]'
+
+    - run: |
+        cat ~/.m2/settings.xml
+        
+    - name: Set up JDK 1.8 version
+      uses: actions/setup-java@v1
+      with:
+        java-version: 1.8
+        path: ~/.m2/repository
+        #server-id: github # Value of the distributionManagement/repository/id field of the pom.xml
+        settings-path: ${{ github.workspace }} # location for the settings.xml file
+
+    - name: Deploy to AWS 
+      run: >
+        mvn clean deploy -DskipMunitTests -DmuleDeploy
+        "-Dusername=${{ env.anypointPlatformUsername }}"
+        "-Dpassword=${{ env.anypointPlatformPassword }}"
+        -Danypoint_platform_client_id=${{ env.anypointPlatformClientId }}
+        -Danypoint_platform_client_secret=${{ env.anypointPlatformClientSecret }}
+        -Denv=${{ env.workflowEnv }}
+        -Danypoint_platform_region=${{ env.anypointPlatformRegionName }}
+        -DapiId=${{ env.apiId }}
+        -DapiProject=${{ env.apiProject }}
+        -DapiLayer=${{ env.apiLayer }}
+        -Dkey=${{secrets.encryptdecryptkey}}
+        -Dtarget=${{env.target}}
+        -Dtarget.type=${{env.type}}
+        -DbusinessgroupId=${{env.businessGroupId}} 
+        -DawsVPCRegion=${{env.awsVPCRegion}}
+        -Danypoint_platform_env=${{env.anypointPlatformEnvName}}
+        -DapplicationName=${{env.applicationName}}
+        -DmuleVersion=${{env.muleVersion}}
+        -DdeploymentTimeout=${{env.deploymentTimeout}}
+        -DapiId=${{env.apiId}}
+        -Dregion=${{env.anypointPlatformRegionName}}
